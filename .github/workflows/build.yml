@@ -90,7 +90,7 @@ jobs:
         key: ${{ github.workflow }}-cpm-modules-${{ hashFiles('extensions/**/CMakeLists.txt', '*/CMakeLists.txt', 'cmake/*.cmake') }}
 
     - name: Tailscale
-      uses: omnigres/tailscale-github-action@v2 #tailscale/github-action@v2
+      uses: tailscale/tailscale-github-action@v2 #tailscale/github-action@v2
       with:
         oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
         oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
