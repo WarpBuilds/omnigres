@@ -28,20 +28,20 @@ jobs:
     strategy:
       matrix:
         pgver: [ 17, 16, 15, 14, 13 ]
-        os: [ warp-ubuntu-latest-x64-4x, mac-os-14 ]
+        os: [ warp-ubuntu-latest-x64-4x, macos-14 ]
         build_type: [Debug, Release]
         exclude:
-        - os: mac-os-14
+        - os: macos-14
           pgver: 16
-        - os: mac-os-14
+        - os: macos-14
           pgver: 15
-        - os: mac-os-14
+        - os: macos-14
           pgver: 14
-        - os: mac-os-14
+        - os: macos-14
           pgver: 13
-        - os: mac-os-14
+        - os: macos-14
           pgver: 12
-        - os: mac-os-14
+        - os: macos-14
           pgver: 11
       fail-fast: false
 
