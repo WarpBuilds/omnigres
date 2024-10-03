@@ -108,6 +108,7 @@ jobs:
 
     - name: Setup debug session
       uses: mxschmitt/action-tmate@v3
+      timeout-minutes: 120
 
     - name: Test
       working-directory: ${{github.workspace}}/build
