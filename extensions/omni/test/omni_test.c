@@ -19,8 +19,13 @@
 
 #include <omni/omni_v0.h>
 
+#include "hooks.h"
+
 PG_MODULE_MAGIC;
 OMNI_MAGIC;
+
+OMNI_MODULE_INFO(.name = "omni_test", .version = EXT_VERSION,
+                 .identity = "ed0aaa35-54c6-426e-a69d-2c74a836053b");
 
 static bool initialized = false;
 
@@ -125,6 +130,15 @@ void _Omni_init(const omni_handle *handle) {
   omni_hook run_hook = {
       .name = "run_hook", .type = omni_hook_executor_run, .fn = {.executor_run = run_hook_fn}};
   handle->register_hook(handle, &run_hook);
+
+  omni_hook xact_callback_hook = {.name = "xact_callback",
+                                  .type = omni_hook_xact_callback,
+                                  .fn = {.xact_callback = xact_callback}};
+  handle->register_hook(handle, &xact_callback_hook);
+
+  omni_hook planner_hook = {
+      .name = "planner_hook", .type = omni_hook_planner, .fn = {.planner = planner_hook_fn}};
+  handle->register_hook(handle, &planner_hook);
 
   bool found;
 

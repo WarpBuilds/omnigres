@@ -57,15 +57,15 @@ if(NOT DEFINED PG_CONFIG)
 
     # Use latest known version if PGVER is not set
     if(NOT PGVER)
-        set(PGVER 16)
+        set(PGVER 17)
     endif()
 
     # If the version is not known, try resolving the alias
-    set(PGVER_ALIAS_16 16.1)
-    set(PGVER_ALIAS_15 15.5)
-    set(PGVER_ALIAS_14 14.10)
-    set(PGVER_ALIAS_13 13.13)
-    set(PGVER_ALIAS_12 12.17)
+    set(PGVER_ALIAS_17 17.0)
+    set(PGVER_ALIAS_16 16.4)
+    set(PGVER_ALIAS_15 15.8)
+    set(PGVER_ALIAS_14 14.13)
+    set(PGVER_ALIAS_13 13.16)
 
     if("${PGVER}" MATCHES "[0-9]+.[0-9]+")
         set(PGVER_ALIAS "${PGVER}")
@@ -133,6 +133,12 @@ if(NOT DEFINED PG_CONFIG)
         elseif(BUILD_TYPE STREQUAL "Release")
         else()
             string(APPEND extra_configure_args " --enable-debug --enable-cassert")
+        endif()
+
+        if(BUILD_TYPE STREQUAL "RelWithDebInfo")
+            set(ENV{CFLAGS} "$ENV{CFLAGS} ${CMAKE_C_FLAGS_RELWITHDEBINFO}")
+        elseif(BUILD_TYPE STREQUAL "Release")
+            set(ENV{CFLAGS} "$ENV{CFLAGS} ${CMAKE_C_FLAGS_RELEASE}")
         endif()
 
         execute_process(
@@ -275,10 +281,7 @@ if(PostgreSQL_FOUND)
         "${_pg_pkglibdir}"
         CACHE STRING "PostgreSQL package library directory")
 
-    find_program(
-            PG_BINARY postgres
-            HINTS ${_pg_bindir}
-            PATH_SUFFIXES bin)
+    set(PG_BINARY ${_pg_bindir}/postgres)
 
     if(NOT PG_BINARY)
         message(FATAL_ERROR "Could not find postgres binary")

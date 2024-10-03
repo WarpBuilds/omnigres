@@ -7,6 +7,7 @@
 #include <executor/executor.h>
 #include <lib/dshash.h>
 #include <miscadmin.h>
+#include <optimizer/planner.h>
 #include <storage/ipc.h>
 #include <storage/lwlock.h>
 #include <storage/shmem.h>
@@ -43,8 +44,10 @@ void _PG_init() {
   // We only initialize once, as a shared preloaded library.
   if (!process_shared_preload_libraries_in_progress) {
     if (!preloaded) {
-      // Issue a warning if it is not preloaded, as it won't be useful
-      ereport(WARNING, errmsg("omni extension has not been preloaded"),
+      // Issue an error if it is not preloaded, as it won't be functional
+      // (and may be even outright dangerous) to allow calling any function
+      // in it if it was not preloaded.
+      ereport(ERROR, errmsg("omni extension has not been preloaded"),
               errhint("`shared_preload_libraries` should list `omni`"));
     }
     // If it is not being preloaded, nothing to do here
@@ -71,6 +74,7 @@ void _PG_init() {
   OLD = omni_##NAME##_hook
 
   save_hook(needs_fmgr, needs_fmgr_hook);
+  save_hook(planner, planner_hook);
   save_hook(executor_start, ExecutorStart_hook);
   save_hook(executor_run, ExecutorRun_hook);
   save_hook(executor_finish, ExecutorFinish_hook);
@@ -82,16 +86,21 @@ void _PG_init() {
 
   RegisterXactCallback(omni_xact_callback_hook, NULL);
 
-  void *default_hooks[__OMNI_HOOK_TYPE_COUNT] = {
-      [omni_hook_needs_fmgr] = saved_hooks[omni_hook_needs_fmgr] ? default_needs_fmgr : NULL,
-      [omni_hook_executor_start] = default_executor_start,
-      [omni_hook_executor_run] = default_executor_run,
-      [omni_hook_executor_finish] = default_executor_finish,
-      [omni_hook_executor_end] = default_executor_end,
-      [omni_hook_process_utility] = default_process_utility,
-      [omni_hook_emit_log] = saved_hooks[omni_hook_emit_log] ? default_emit_log : NULL,
-      [omni_hook_check_password] =
-          saved_hooks[omni_hook_check_password] ? default_check_password_hook : NULL,
+  omni_hook_fn default_hooks[__OMNI_HOOK_TYPE_COUNT] = {
+      [omni_hook_needs_fmgr] = {.needs_fmgr =
+                                    saved_hooks[omni_hook_needs_fmgr] ? default_needs_fmgr : NULL},
+      [omni_hook_planner] = {.planner = default_planner},
+      [omni_hook_executor_start] = {.executor_start = default_executor_start},
+      [omni_hook_executor_run] = {.executor_run = default_executor_run},
+      [omni_hook_executor_finish] = {.executor_finish = default_executor_finish},
+      [omni_hook_executor_end] = {.executor_end = default_executor_end},
+      [omni_hook_process_utility] = {.process_utility = default_process_utility},
+      [omni_hook_emit_log] = {.emit_log =
+                                  saved_hooks[omni_hook_emit_log] ? default_emit_log : NULL},
+      [omni_hook_check_password] = {.check_password = saved_hooks[omni_hook_check_password]
+                                                          ? default_check_password_hook
+                                                          : NULL},
+      [omni_hook_xact_callback] = {.xact_callback = NULL},
       NULL};
 
   {
@@ -101,7 +110,7 @@ void _PG_init() {
     for (int type = 0; type < __OMNI_HOOK_TYPE_COUNT; type++) {
       // It is important to use palloc0 here to ensure the first recors in the hook array are
       // calling the original hooks (if present)
-      if (default_hooks[type] != NULL) {
+      if (default_hooks[type].ptr != NULL) {
         hook_entry_point *entry;
         entry = hook_entry_points.entry_points[type] =
             palloc0(sizeof(*hook_entry_points.entry_points[type]));
@@ -184,6 +193,7 @@ static void shmem_hook() {
     shared_info->modules_tab = InvalidDsaPointer;
     shared_info->allocations_tab = InvalidDsaPointer;
     pg_atomic_init_flag(&shared_info->tables_initialized);
+    pg_atomic_init_flag(&shared_info->dsa_initialized);
   }
 
   LWLockRelease(AddinShmemInitLock);
@@ -212,7 +222,13 @@ static void bgw_first_xact(XactEvent event, void *arg) {
     // We capture at the pre-commit stage as this is where we're still in transaction state
     Assert(IsTransactionState());
     if (MyDatabaseId != InvalidOid) {
-      init_backend(NULL);
+      if (MyBackendType == B_BG_WORKER) {
+        if (strcmp(MyBgworkerEntry->bgw_library_name, "postgres") == 0) {
+          // Don't do anything for `postgres` own workers
+          return;
+        }
+        init_backend(NULL);
+      }
 #if PG_MAJORVERSION_NUM >= 16
       // Only unregister in Postgres >= 16 as per
       // https://github.com/postgres/postgres/commit/4d2a844242dcfb34e05dd0d880b1a283a514b16b In all
@@ -226,24 +242,13 @@ static void bgw_first_xact(XactEvent event, void *arg) {
 }
 
 MODULE_FUNCTION void init_backend(void *arg) {
-  if (MyBackendType == B_BACKEND || MyBackendType == B_BG_WORKER || MyBgworkerEntry != NULL) {
-    if (MyBgworkerEntry != NULL) {
-      if (strcmp(MyBgworkerEntry->bgw_library_name, "postgres") == 0) {
-        // Don't do anything for `postgres` own workers
-        return;
-      }
-      if (MyBackendType != B_BG_WORKER) {
-        // It is too early for bgworkers to initialize (locks not available, etc.)
-        //
-        // So we wait for the first transaction with a database set to occur, to get back here
-        RegisterXactCallback(bgw_first_xact, NULL);
-
-        // Stop this initialization from proceeding any further for the time being
-        // We will get back here through the trampoline described above
-        return;
-      }
-      // We are back now
-    } else {
+  if (MyBackendType == B_INVALID) {
+    // It could be a background worker, but we don't know yet, let this call back figure this out
+    RegisterXactCallback(bgw_first_xact, NULL);
+    return;
+  }
+  if (MyBackendType == B_BACKEND || MyBackendType == B_BG_WORKER) {
+    if (MyBackendType == B_BACKEND) {
       // We only open a transaction if it is a backend. Background worker is already
       // in a transaction (pre-commit).
       SetCurrentStatementStartTimestamp();
@@ -256,13 +261,12 @@ MODULE_FUNCTION void init_backend(void *arg) {
 
     PopActiveSnapshot();
 
-    if (MyBackendType != B_BG_WORKER) {
+    if (MyBackendType == B_BACKEND) {
       // We only abort a transaction if it is a backend. Background worker is already
       // in a transaction (pre-commit).
       AbortCurrentTransaction();
     }
   }
-
   // Ensure we can clean up when the backend is exiting
   before_shmem_exit(deinitialize_backend, DatumGetInt32(0));
 }

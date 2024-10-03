@@ -5,7 +5,7 @@ on:
     # one can merge their branch to test-gh-workflows for testing changes of current workflow before merging them to master
     branches: [ "master", "test-gh-workflows" ]
   pull_request_target:
-    branches: [ "master" ]
+    branches: [ "master", "next/*" ]
   schedule:
     - cron: '33 13 * * *'
 
@@ -27,19 +27,21 @@ jobs:
   build:
     strategy:
       matrix:
-        pgver: [ 16, 15, 14, 13 ]
-        os: [ warp-ubuntu-latest-x64-4x, flyci-macos-large-latest-m1 ]
+        pgver: [ 17, 16, 15, 14, 13 ]
+        os: [ warp-ubuntu-latest-x64-4x, warp-macos-14-arm64-6x ]
         build_type: [Debug, Release]
         exclude:
-        - os: flyci-macos-large-latest-m1
+        - os: warp-macos-14-arm64-6x
+          pgver: 16
+        - os: warp-macos-14-arm64-6x
           pgver: 15
-        - os: flyci-macos-large-latest-m1
+        - os: warp-macos-14-arm64-6x
           pgver: 14
-        - os: flyci-macos-large-latest-m1
+        - os: warp-macos-14-arm64-6x
           pgver: 13
-        - os: flyci-macos-large-latest-m1
+        - os: warp-macos-14-arm64-6x
           pgver: 12
-        - os: flyci-macos-large-latest-m1
+        - os: warp-macos-14-arm64-6x
           pgver: 11
       fail-fast: false
 
@@ -76,12 +78,12 @@ jobs:
       run: |
         echo "PATH_SUFFIX=" >> $GITHUB_ENV
 
-    - uses: actions/cache@v3
+    - uses: WarpBuilds/cache@v1
       with:
         path: .pg
         key: ${{ matrix.os }}-pg-${{ matrix.pgver }}-${{ matrix.build_type }}-${{ hashFiles('cmake/FindPostgreSQL.cmake') }}${{ env.PATH_SUFFIX }}
 
-    - uses: actions/cache@v3
+    - uses: WarpBuilds/cache@v1
       with:
         path: ${{github.workspace}}/build/_deps
         key: ${{ github.workflow }}-cpm-modules-${{ hashFiles('extensions/**/CMakeLists.txt', '*/CMakeLists.txt', 'cmake/*.cmake') }}
@@ -103,7 +105,7 @@ jobs:
 
     - name: Test
       working-directory: ${{github.workspace}}/build
-      run: TMPDIR=$RUNNER_TEMP DOCKER_HOST_IP=$(tailscale ip -4) ctest -timeout 1000 --force-new-ctest-process  --repeat until-pass:10 --output-on-failure -j $(nproc) -C ${{matrix.build_type}}
+      run: TMPDIR=$RUNNER_TEMP DOCKER_HOST_IP=$(tailscale ip -4) USER=$(whoami) ctest --timeout 1000 --force-new-ctest-process  --repeat until-pass:10 --output-on-failure -j $(nproc) -C ${{matrix.build_type}}
 
     - uses: actions/upload-artifact@v3
       if: failure()
@@ -147,7 +149,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
-    - uses: actions/cache@v3
+    - uses: WarpBuilds/cache@v1
       with:
         path: .pg
         key: ${{ matrix.os }}-pg-${{ matrix.pgver }}-${{ hashFiles('cmake/FindPostgreSQL.cmake') }}

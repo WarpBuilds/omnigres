@@ -6,6 +6,9 @@ extern "C" {
 #include <miscadmin.h>
 #include <nodes/execnodes.h>
 #include <utils/builtins.h>
+#if PG_MAJORVERSION_NUM >= 17
+#include <utils/tuplestore.h>
+#endif
 
 PG_MODULE_MAGIC;
 }
@@ -72,7 +75,9 @@ static Datum xpath_impl(PG_FUNCTION_ARGS) {
     tuplestore_putvalues(tupstore, rsinfo->expectedDesc, values, isnull);
   }
 
+#if PG_MAJORVERSION_NUM < 17
   tuplestore_donestoring(tupstore);
+#endif
 
   MemoryContextSwitchTo(oldcontext);
   PG_RETURN_NULL();
@@ -84,6 +89,6 @@ extern "C" {
 
 void _PG_init() { init(); }
 
-PG_FUNCTION_INFO_V1(xpath);
-Datum xpath(PG_FUNCTION_ARGS) { return xpath_impl(fcinfo); }
+PG_FUNCTION_INFO_V1(xpath_fn);
+Datum xpath_fn(PG_FUNCTION_ARGS) { return xpath_impl(fcinfo); }
 }

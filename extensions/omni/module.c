@@ -11,6 +11,9 @@
 #include <storage/lwlock.h>
 
 #include "omni_common.h"
+#if PG_MAJORVERSION_NUM >= 17
+#include <utils/tuplestore.h>
+#endif
 
 void _Omni_init(const omni_handle *handle) {
   omni_hook alter_extension_hook = {.name = "extension upgrade",
@@ -49,21 +52,15 @@ Datum modules(PG_FUNCTION_ARGS) {
   dshash_seq_term(&status);
   LWLockRelease(&(locks + OMNI_LOCK_MODULE)->lock);
 
+#if PG_MAJORVERSION_NUM < 17
   tuplestore_donestoring(tupstore);
+#endif
 
   MemoryContextSwitchTo(oldcontext);
   PG_RETURN_NULL();
 }
 
-char *omni_hook_types[__OMNI_HOOK_TYPE_COUNT] = {[omni_hook_executor_start] = "executor_start",
-                                                 [omni_hook_executor_run] = "executor_run",
-                                                 [omni_hook_executor_finish] = "executor_finish",
-                                                 [omni_hook_executor_end] = "executor_end",
-                                                 [omni_hook_needs_fmgr] = "needs_fmgr",
-                                                 [omni_hook_process_utility] = "process_utility",
-                                                 [omni_hook_emit_log] = "emit_hook",
-                                                 [omni_hook_check_password] = "check_password",
-                                                 0};
+#include "hook_types.h"
 
 PG_FUNCTION_INFO_V1(hooks);
 Datum hooks(PG_FUNCTION_ARGS) {
@@ -90,7 +87,9 @@ Datum hooks(PG_FUNCTION_ARGS) {
     }
   }
 
+#if PG_MAJORVERSION_NUM < 17
   tuplestore_donestoring(tupstore);
+#endif
 
   MemoryContextSwitchTo(oldcontext);
   PG_RETURN_NULL();
@@ -125,7 +124,9 @@ Datum shmem_allocations(PG_FUNCTION_ARGS) {
   dshash_seq_term(&status);
   LWLockRelease(&(locks + OMNI_LOCK_ALLOCATION)->lock);
 
+#if PG_MAJORVERSION_NUM < 17
   tuplestore_donestoring(tupstore);
+#endif
 
   MemoryContextSwitchTo(oldcontext);
   PG_RETURN_NULL();

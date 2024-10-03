@@ -165,9 +165,7 @@ function(add_postgresql_extension NAME)
         add_library(${_ext_TARGET} MODULE ${_ext_SOURCES})
     endif()
 
-    add_dependencies(${_ext_TARGET} check_git_commit_hash)
-
-    # inja ia a default target dependency for all extensions    
+    # inja ia a default target dependency for all extensions
     if(NOT TARGET inja)
         add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../misc/inja" "${CMAKE_CURRENT_BINARY_DIR}/inja")
     endif()
@@ -177,14 +175,14 @@ function(add_postgresql_extension NAME)
     if(NOT TARGET omni AND NOT NAME STREQUAL "omni")
        add_subdirectory_once("${CMAKE_CURRENT_SOURCE_DIR}/../../omni" "${CMAKE_CURRENT_BINARY_DIR}/../../omni")
        add_subdirectory_once("${CMAKE_CURRENT_SOURCE_DIR}/../../extensions/omni" "${CMAKE_CURRENT_BINARY_DIR}/../../extensions/omni")
-   endif()
+    endif()
 
     foreach(requirement ${_ext_REQUIRES})
         if(NOT TARGET ${requirement})
-            if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../${requirement}")
-                add_subdirectory_once("${CMAKE_CURRENT_SOURCE_DIR}/../${requirement}" "${CMAKE_CURRENT_BINARY_DIR}/../${requirement}")
-            elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../extensions/${requirement}")
-                add_subdirectory_once("${CMAKE_CURRENT_SOURCE_DIR}/../../extensions/${requirement}" "${CMAKE_CURRENT_BINARY_DIR}/extensions/${requirement}")
+            if(EXISTS "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../${requirement}")
+                add_subdirectory_once("${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../${requirement}" "${CMAKE_BINARY_DIR}/${requirement}")
+            elseif(EXISTS "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../extensions/${requirement}")
+                add_subdirectory_once("${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../extensions/${requirement}" "${CMAKE_BINARY_DIR}/extensions/${requirement}")
             elseif(EXISTS "${PostgreSQL_EXTENSION_DIR}/${requirement}.control")
                 message(STATUS "Found matching installed extension")
             else()
@@ -377,10 +375,17 @@ $command $@
     if(_ext_SOURCES)
         add_custom_target(package_${_ext_TARGET}_extension
                 WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+                DEPENDS omni_check_symbol_conflict_${_ext_TARGET}
                 COMMAND
                 ${CMAKE_COMMAND} -E copy_if_different
                 "${CMAKE_CURRENT_BINARY_DIR}/$<TARGET_FILE_NAME:${_ext_TARGET}>"
                 ${_pkg_dir})
+        # Check that the extension has no conflicting symbols with the Postgres binary
+        # otherwise the linker might use the symbols from Postgres
+        find_package(Python COMPONENTS Interpreter REQUIRED)
+        add_custom_target(omni_check_symbol_conflict_${_ext_TARGET}
+                WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+                COMMAND ${Python_EXECUTABLE} ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/check_symbol_conflict.py ${PG_BINARY} "$<TARGET_FILE:${_ext_TARGET}>")
     endif()
 
     add_custom_target(package_${_ext_TARGET}_migrations
@@ -578,7 +583,7 @@ ${PG_CTL} stop -D  \"$PSQLDB\" -m smart
         add_custom_target(psql_${_ext_TARGET}
                 WORKING_DIRECTORY "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/.."
                 COMMAND ${CMAKE_CURRENT_BINARY_DIR}/psql_${_ext_TARGET})
-        add_dependencies(psql_${_ext_TARGET} ${_ext_TARGET} omni)
+        add_dependencies(psql_${_ext_TARGET} ${_ext_TARGET} prepare omni)
     endif()
 
     if(PG_REGRESS)
@@ -588,7 +593,7 @@ ${PG_CTL} stop -D  \"$PSQLDB\" -m smart
                 --verbose --output-on-failure)
     endif()
 
-    if(NOT _ext_PRIVATE AND NOT NAME STREQUAL "omni")
+    if(NOT _ext_PRIVATE)
         get_property(omni_artifacts GLOBAL PROPERTY omni_artifacts)
         if(NOT omni_artifacts)
             # Make an empty file
@@ -605,7 +610,7 @@ ${PG_CTL} stop -D  \"$PSQLDB\" -m smart
             foreach(requirement ${_ext_REQUIRES})
                 math(EXPR _ctr "${_ctr} + 1")
                 if(TARGET ${requirement})
-                    get_version(requirement _ver)
+                    get_version(${requirement} _ver)
                 else()
                     set(_ver "*")
                 endif()
@@ -621,7 +626,7 @@ ${PG_CTL} stop -D  \"$PSQLDB\" -m smart
 
     if(NOT _ext_PRIVATE)
         get_property(omni_path_map GLOBAL PROPERTY omni_path_map)
-        if(NOT omni_artifacts)
+        if(NOT omni_path_map)
             # Make an empty file
             set_property(GLOBAL PROPERTY omni_path_map "${CMAKE_BINARY_DIR}/paths.txt")
             get_property(omni_path_map GLOBAL PROPERTY omni_path_map)

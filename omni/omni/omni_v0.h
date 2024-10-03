@@ -19,7 +19,7 @@
 #include <utils/guc.h>
 #include <utils/guc_tables.h>
 
-#if PG_MAJORVERSION_NUM >= 13 && PG_MAJORVERSION_NUM <= 16
+#if PG_MAJORVERSION_NUM >= 13 && PG_MAJORVERSION_NUM <= 17
 /**
  * Omni's copy of an otherwise private datatype of `BackgroundWorkerHnalde`
  * so that it can be copied between backends.
@@ -32,6 +32,19 @@ typedef struct BackgroundWorkerHandle {
 #else
 #error "Ensure this version of Postgres is compatible with the above definition or use a new one"
 #endif
+
+/**
+ * @brief Module information
+ */
+typedef struct {
+  char *name;
+  char *version;
+  char *identity;
+} omni_module_information;
+
+#define OMNI_MODULE_INFO(...) omni_module_information _omni_module_information = {__VA_ARGS__}
+
+extern omni_module_information _omni_module_information;
 
 /**
  * @private
@@ -47,7 +60,7 @@ typedef struct {
 StaticAssertDecl(sizeof(omni_magic) <= UINT16_MAX, "omni_magic should fit into 16 bits");
 
 #define OMNI_INTERFACE_VERSION 0
-#define OMNI_INTERFACE_REVISION 5
+#define OMNI_INTERFACE_REVISION 6
 
 typedef struct omni_handle omni_handle;
 
@@ -81,7 +94,12 @@ void _Omni_deinit(const omni_handle *handle);
   static omni_magic __Omni_magic = {.size = sizeof(omni_magic),                                    \
                                     .version = OMNI_INTERFACE_VERSION,                             \
                                     .revision = OMNI_INTERFACE_REVISION};                          \
-  omni_magic *_Omni_magic() { return &__Omni_magic; }
+  omni_magic *_Omni_magic() {                                                                      \
+    if (_omni_module_information.name == NULL) {                                                   \
+      ereport(WARNING, errmsg("missing module name"));                                             \
+    }                                                                                              \
+    return &__Omni_magic;                                                                          \
+  }
 
 /**
  * @brief Shared memory allocation callback
@@ -180,6 +198,9 @@ typedef void (*omni_hook_check_password_t)(omni_hook_handle *handle, const char 
                                            Datum validuntil_time, bool validuntil_null);
 
 typedef void (*omni_hook_needs_fmgr_t)(omni_hook_handle *handle, Oid fn_oid);
+typedef void (*omni_hook_planner_t)(omni_hook_handle *handle, Query *parse,
+                                    const char *query_string, int cursorOptions,
+                                    ParamListInfo boundParams);
 typedef void (*omni_hook_executor_start_t)(omni_hook_handle *handle, QueryDesc *queryDesc,
                                            int eflags);
 typedef void (*omni_hook_executor_run_t)(omni_hook_handle *handle, QueryDesc *queryDesc,
@@ -198,6 +219,7 @@ typedef union {
   omni_hook_emit_log_t emit_log;
   omni_hook_check_password_t check_password;
   omni_hook_needs_fmgr_t needs_fmgr;
+  omni_hook_planner_t planner;
   omni_hook_executor_start_t executor_start;
   omni_hook_executor_run_t executor_run;
   omni_hook_executor_finish_t executor_finish;
