@@ -90,7 +90,7 @@ jobs:
         key: ${{ github.workflow }}-cpm-modules-${{ hashFiles('extensions/**/CMakeLists.txt', '*/CMakeLists.txt', 'cmake/*.cmake') }}
 
     - name: Tailscale
-      uses: Warpbuilds/tailscale-github-action@93a0b7d92ed3ffefba378e1869386b6246156f51 #tailscale/github-action@v2
+      uses: Warpbuilds/tailscale-github-action@edd5af71746bf5fac8654fa4b41f30da57c5858a #tailscale/github-action@v2
       with:
         oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
         oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
